@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from sqlalchemy import Column, Integer, String, Date
 from sqlalchemy import create_engine
@@ -21,7 +21,8 @@ class Table(Base):
 class Todo:
     state = None
     session = None
-    main_menu_options = ["1) Today's tasks", "2) Add task", "0) Exit"]
+    task = {}
+    main_menu_options = ("1) Today's tasks", "2) Week's tasks", "3) All tasks", "4) Add task", "0) Exit")
 
     def __init__(self):
         self.db_init()
@@ -38,12 +39,16 @@ class Todo:
             self.show_menu()
         elif self.state == "choose option":
             if user_input == "1":
-                self.show_tasks()
+                self.show_tasks("today")
             elif user_input == "2":
+                self.show_tasks("week")
+            elif user_input == "3":
+                self.show_tasks("all")
+            elif user_input == "4":
                 self.new_task(user_input)
             elif user_input == "0":
                 self.exit()
-        elif self.state == "enter task":
+        elif self.state in ("task entered", "deadline entered"):
             self.new_task(user_input)
 
     def show_menu(self):
@@ -52,28 +57,57 @@ class Todo:
         self.set_state("choose option")
 
     def new_task(self, user_input=None):
-        if self.state != "enter task":
+        if self.state not in ("task entered", "deadline entered"):
             print("\nEnter task")
-            self.set_state("enter task")
+            self.set_state("task entered")
+        elif self.state == "task entered":
+            self.task["name"] = user_input
+            print("Enter deadline")
+            self.set_state("deadline entered")
         else:
-            new_row = Table(task=user_input)
+            self.task["deadline"] = datetime.strptime(user_input, "%Y-%m-%d")
+            new_row = Table(task=self.task["name"], deadline=self.task["deadline"])
             self.session.add(new_row)
             self.session.commit()
             print("The task has been added!\n")
             self.back_to_menu()
 
-    def show_tasks(self):
-        rows = self.session.query(Table).all()
-        if len(rows) == 0:
-            print("\nToday:\nNothing to do!")
-        else:
-            print("\nToday:")
-            i = 1
-            for row in rows:
-                print(f"{i}. {row}")
-                i += 1
+    def show_tasks(self, time_unit):
+        today = datetime.today()
+        if time_unit == "today":
+            self.show_task("today", today)
+        elif time_unit == "week":
+            for i in range(7):
+                day = today + timedelta(days=i)
+                self.show_task("week", day)
+        elif time_unit == "all":
+            print("\nAll tasks:")
+            rows = self.session.query(Table).order_by(Table.deadline).all()
+            if len(rows) == 0:
+                print("Nothing to do!")
+            else:
+                i = 1
+                for row in rows:
+                    print(f"{i}. {row.task}. {row.deadline.strftime('%#d %b')}")
+                    i += 1
         print()
         self.back_to_menu()
+
+    def show_task(self, mode, date):
+        rows = self.session.query(Table).filter(Table.deadline == date.date()).all()
+        header = ""
+        if mode == "today":
+            header = "Today"
+        elif mode == "week":
+            header = date.strftime('%A')
+        if len(rows) == 0:
+            print(f"\n{header} {date.strftime('%#d %b')}:\nNothing to do!")
+        else:
+            print(f"\n{header} {date.strftime('%#d %b')}:")
+            i = 1
+            for row in rows:
+                print(f"{i}. {row.task}")
+                i += 1
 
     def set_state(self, state):
         self.state = state
