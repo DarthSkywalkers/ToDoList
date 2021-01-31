@@ -22,7 +22,9 @@ class Todo:
     state = None
     session = None
     task = {}
-    main_menu_options = ("1) Today's tasks", "2) Week's tasks", "3) All tasks", "4) Add task", "0) Exit")
+    main_menu_options = ("1) Today's tasks", "2) Week's tasks",
+                         "3) All tasks", "4) Missed tasks",
+                         "5) Add task", "6) Delete task", "0) Exit")
 
     def __init__(self):
         self.db_init()
@@ -45,11 +47,17 @@ class Todo:
             elif user_input == "3":
                 self.show_tasks("all")
             elif user_input == "4":
+                self.show_tasks("missed")
+            elif user_input == "5":
                 self.new_task(user_input)
+            elif user_input == "6":
+                self.show_tasks("delete")
             elif user_input == "0":
                 self.exit()
         elif self.state in ("task entered", "deadline entered"):
             self.new_task(user_input)
+        elif self.state == "delete task":
+            self.delete_task(user_input)
 
     def show_menu(self):
         for i in self.main_menu_options:
@@ -66,36 +74,35 @@ class Todo:
             self.set_state("deadline entered")
         else:
             self.task["deadline"] = datetime.strptime(user_input, "%Y-%m-%d")
-            new_row = Table(task=self.task["name"], deadline=self.task["deadline"])
+            new_row = Table(task=self.task["name"],
+                            deadline=self.task["deadline"])
             self.session.add(new_row)
             self.session.commit()
             print("The task has been added!\n")
             self.back_to_menu()
 
-    def show_tasks(self, time_unit):
+    def show_tasks(self, mode):
         today = datetime.today()
-        if time_unit == "today":
-            self.show_task("today", today)
-        elif time_unit == "week":
+        if mode == "today":
+            self.day_view("today", today)
+        elif mode == "week":
             for i in range(7):
                 day = today + timedelta(days=i)
-                self.show_task("week", day)
-        elif time_unit == "all":
-            print("\nAll tasks:")
-            rows = self.session.query(Table).order_by(Table.deadline).all()
-            if len(rows) == 0:
-                print("Nothing to do!")
-            else:
-                i = 1
-                for row in rows:
-                    print(f"{i}. {row.task}. {row.deadline.strftime('%#d %b')}")
-                    i += 1
-        print()
-        self.back_to_menu()
+                self.day_view("week", day)
+        elif mode == "all":
+            self.agg_view("all")
+        elif mode == "missed":
+            self.agg_view("missed")
+        elif mode == "delete":
+            self.agg_view("delete")
+        if mode not in ("all", "delete", "missed"):
+            print()
+            self.back_to_menu()
 
-    def show_task(self, mode, date):
-        rows = self.session.query(Table).filter(Table.deadline == date.date()).all()
-        header = ""
+    def day_view(self, mode, date):
+        rows = self.session.query(Table).filter(Table.deadline == date.date()
+                                                ).all()
+        header = None
         if mode == "today":
             header = "Today"
         elif mode == "week":
@@ -108,6 +115,51 @@ class Todo:
             for row in rows:
                 print(f"{i}. {row.task}")
                 i += 1
+
+    def agg_view(self, mode):
+        header = None
+        nothing_message = "Nothing to do!"
+        rows = None
+
+        if mode == "all":
+            header = "\nAll tasks:"
+            rows = self.session.query(Table).order_by(Table.deadline).all()
+        elif mode == "missed":
+            header = "\nMissed tasks:"
+            nothing_message = "Nothing is missed!"
+            rows = self.session.query(Table).filter(
+                Table.deadline < datetime.today().date()
+            ).order_by(Table.deadline).all()
+        elif mode == "delete":
+            header = "\nChoose the number of the task you want to delete:"
+            nothing_message = "Nothing to delete!"
+            rows = self.session.query(Table).order_by(Table.deadline).all()
+
+        if len(rows) == 0:
+            if mode != "delete":
+                print(header)
+            print(nothing_message)
+            print()
+            self.back_to_menu()
+        else:
+            print(header)
+            i = 1
+            for row in rows:
+                print(f"{i}. {row.task}. {row.deadline.strftime('%#d %b')}")
+                i += 1
+            self.set_state("delete")
+            if mode != "delete":
+                print()
+                self.back_to_menu()
+
+    def delete_task(self, row_number):
+        rows = self.session.query(Table).order_by(Table.deadline).all()
+        if len(rows) > 0:
+            specific_row = rows[int(row_number) - 1]
+            self.session.delete(specific_row)
+            self.session.commit()
+            print("The task has been deleted!\n")
+        self.back_to_menu()
 
     def set_state(self, state):
         self.state = state
